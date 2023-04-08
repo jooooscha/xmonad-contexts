@@ -21,6 +21,7 @@ import           Control.Monad               (when)
 import           Data.Foldable               (for_)
 import qualified Data.Map.Strict             as Map
 import           Data.Maybe                  (fromMaybe)
+import           Data.List                   as L
 
 import           XMonad
 import qualified XMonad.StackSet             as W
@@ -34,7 +35,7 @@ type ContextMap = Map.Map ContextName Context
 type WorkspaceNames = [(WorkspaceId, String)]
 
 data Context = Context
-    { windowSet          :: WindowSet
+    { windowSet      :: WindowSet
     , workspaceNames :: WorkspaceNames
     } deriving Show
 
@@ -42,7 +43,7 @@ deriving instance Read (Layout Window) => Read Context
 
 data ContextStorage = ContextStorage
     { currentCtxName :: !ContextName
-    , contextMap         :: !ContextMap
+    , contextMap     :: !ContextMap
     } deriving Show
 
 deriving instance Read (Layout Window) => Read ContextStorage
@@ -65,13 +66,14 @@ switchContext newContextName = do
             xstate <- get
             wsMap <- currentWorkspaceMap -- list of current workspaces
 
+            let oldContext = Context (windowset xstate) wsMap -- current Context, including current names of workspaces
+
             let ctxMap' = Map.insert oldContextName oldContext ctxMap -- store current context in map
-                    where oldContext = Context (windowset xstate) wsMap -- current Context, including current names of workspaces
-                          oldContextName = currentCtxName ctxStorage
+                    where oldContextName = currentCtxName ctxStorage
 
             XS.put $ ContextStorage newContextName ctxMap' -- store context
 
-            setWindowsAndWorkspaces newCtx
+            setWindowsAndWorkspaces oldContext newCtx
 
             return True
 
@@ -82,10 +84,70 @@ createAndSwitchContext name = do
     return ()
 
 
+-- merge windows from second set into first set if the
+-- corresponding workspace id is in the list
+-- First Contxt is old; Second context is new
+-- Note: visible, hidden, and current workspace(s) have to be handled separately
+mergeContexts :: [WorkspaceId] -> Context -> Context -> Context
+mergeContexts ids ctxOld ctxNew = do
+
+    let stackNew = windowSet ctxNew -- Workspaces of new context
+
+    -- first, merge hidden workspaces
+
+    let hidden = W.hidden stackNew -- all hidden workspaces from new context
+
+    -- merge according to id list (keep old when id is in list)
+    -- let newHidden = map (\ws -> if W.tag ws `elem` ids then oldWs ws else ws) hidden
+    let newHidden = map (\ws -> choose ws (oldWs ws) ws) hidden
+
+    -- secondly, we merge visible workspaces
+
+    let vis = W.visible stackNew -- returns a list of 'Screen'
+
+    -- merge according to id list (keep old when id is in list)
+    let newVisible = map mergeVisible vis
+            where mergeVisible screen = do
+                    let ws = W.workspace screen -- extract Workspace from Screen
+                    {- if W.tag ws `elem` ids then screen { W.workspace = oldWs ws } else screen -}
+                    choose ws (screen { W.workspace = oldWs ws }) screen
+
+    -- finally, we handle the currently focused workspace
+
+    let focused = W.current stackNew
+
+    let newFocused = do
+        let ws = W.workspace focused
+        {- if W.tag ws  `elem` ids then focused { W.workspace = oldWs ws } else focused -}
+        choose ws (focused { W.workspace = oldWs ws }) focused
+
+    -- update workspaces
+    let newStack = stackNew {
+        W.hidden = newHidden,
+        W.visible = newVisible,
+        W.current = newFocused
+    }
+
+    Context newStack (workspaceNames ctxNew)
+
+        where
+            choose ws a b = if W.tag ws `elem` ids then a else b
+
+            workspacesOld = W.workspaces (windowSet ctxOld)
+
+            {- oldWs :: W.Workspace i l a -> W.Workspace i l a -}
+            oldWs ws = fromMaybe ws (find (\x -> W.tag ws == W.tag x) workspacesOld) -- if tag is not found in workspacesOld, return new ws
+
 -- set the window set and apply the workspaceNames
-setWindowsAndWorkspaces :: Context -> X ()
-setWindowsAndWorkspaces ctx = do
-    let Context windowSet workspaceNames = ctx
+setWindowsAndWorkspaces :: Context -> Context -> X ()
+setWindowsAndWorkspaces oldContext newContext = do
+
+    -- copy fixed workspaces from curren context
+    let newContext = mergeContexts [ "k", "l" ] oldContext newContext
+
+    -- let Context windowSet workspaceNames = newContext
+    let Context windowSet workspaceNames = newContext
+
     windows $ const windowSet -- hide old windows and show windows from new context
     mapM_ (uncurry setWorkspaceName) workspaceNames
 
@@ -125,10 +187,10 @@ moveWindowToContext name = do
                     xstate <- get
                     wsMap <- currentWorkspaceMap -- list of current workspaces
 
+                    let newWindowSet = W.delete  window (windowset xstate)
+                    let oldContext = Context newWindowSet wsMap -- current Context, including current names of workspaces
                     let ctxMap' = Map.insert oldContextName oldContext ctxMap -- store current context in map
-                            where newWindowSet = W.delete  window (windowset xstate)
-                                  oldContext = Context newWindowSet wsMap -- current Context, including current names of workspaces
-                                  oldContextName = currentCtxName ctxStorage
+                            where oldContextName = currentCtxName ctxStorage
 
                     XS.put $ ContextStorage name ctxMap' -- store changes
 
@@ -136,7 +198,7 @@ moveWindowToContext name = do
                             where newWindowSet = W.insertUp window (windowSet newCtx)
                                   newWorkspaceNames = workspaceNames newCtx
 
-                    setWindowsAndWorkspaces newCtx' -- load new context
+                    setWindowsAndWorkspaces oldContext newCtx' -- load new context
 
                     return True
 
