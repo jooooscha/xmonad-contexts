@@ -94,32 +94,13 @@ mergeContexts ids ctxOld ctxNew = do
     let stackNew = windowSet ctxNew -- Workspaces of new context
 
     -- first, merge hidden workspaces
-
-    let hidden = W.hidden stackNew -- all hidden workspaces from new context
-
-    -- merge according to id list (keep old when id is in list)
-    -- let newHidden = map (\ws -> if W.tag ws `elem` ids then oldWs ws else ws) hidden
-    let newHidden = map (\ws -> choose ws (oldWs ws) ws) hidden
+    let newHidden = map selectWorkspace (W.hidden stackNew)
 
     -- secondly, we merge visible workspaces
-
-    let vis = W.visible stackNew -- returns a list of 'Screen'
-
-    -- merge according to id list (keep old when id is in list)
-    let newVisible = map mergeVisible vis
-            where mergeVisible screen = do
-                    let ws = W.workspace screen -- extract Workspace from Screen
-                    {- if W.tag ws `elem` ids then screen { W.workspace = oldWs ws } else screen -}
-                    choose ws (screen { W.workspace = oldWs ws }) screen
+    let newVisible = map selectScreen (W.visible stackNew)
 
     -- finally, we handle the currently focused workspace
-
-    let focused = W.current stackNew
-
-    let newFocused = do
-        let ws = W.workspace focused
-        {- if W.tag ws  `elem` ids then focused { W.workspace = oldWs ws } else focused -}
-        choose ws (focused { W.workspace = oldWs ws }) focused
+    let newFocused = selectScreen (W.current stackNew)
 
     -- update workspaces
     let newStack = stackNew {
@@ -131,7 +112,11 @@ mergeContexts ids ctxOld ctxNew = do
     Context newStack (workspaceNames ctxNew)
 
         where
-            choose ws a b = if W.tag ws `elem` ids then a else b
+            selectScreen screen = do
+                let ws = W.workspace screen
+                screen { W.workspace = selectWorkspace ws }
+
+            selectWorkspace ws = if W.tag ws `elem` ids then oldWs ws else ws
 
             workspacesOld = W.workspaces (windowSet ctxOld)
 
@@ -143,7 +128,7 @@ setWindowsAndWorkspaces :: Context -> Context -> X ()
 setWindowsAndWorkspaces oldContext newContext = do
 
     -- copy fixed workspaces from curren context
-    let newContext = mergeContexts [ "k", "l" ] oldContext newContext
+    let newContext = mergeContexts [ "l" ] oldContext newContext
 
     -- let Context windowSet workspaceNames = newContext
     let Context windowSet workspaceNames = newContext
