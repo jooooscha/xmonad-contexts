@@ -125,13 +125,12 @@ mergeContexts ids ctxOld ctxNew = do
 
 -- set the window set and apply the workspaceNames
 setWindowsAndWorkspaces :: Context -> Context -> X ()
-setWindowsAndWorkspaces oldContext newContext = do
+setWindowsAndWorkspaces fixedWs oldContext newContext = do
 
     -- copy fixed workspaces from curren context
-    let newContext = mergeContexts [ "l" ] oldContext newContext
+    let mergedContext = mergeContexts fixedWs oldContext newContext
 
-    -- let Context windowSet workspaceNames = newContext
-    let Context windowSet workspaceNames = newContext
+    let Context windowSet workspaceNames = mergedContext
 
     windows $ const windowSet -- hide old windows and show windows from new context
     mapM_ (uncurry setWorkspaceName) workspaceNames
