@@ -6,11 +6,14 @@
 module XMonad.Actions.Contexts (
     createContext,
     switchContext,
+    switchContextFixedWs,
     createAndSwitchContext,
+    createAndSwitchContextFixedWs,
     deleteContext,
     showCurrentContextName,
     listContextNames,
     moveWindowToContext,
+    moveWindowToContextFixedWs,
     defaultContextName,
     showContextStorage
 ) where
@@ -57,7 +60,10 @@ defaultContextName = "Main"
 
 -------------------------------------------------------------------------------
 switchContext :: Read (Layout Window) => ContextName -> X Bool
-switchContext newContextName = do
+switchContext = switchContextFixedWs []
+
+switchContextFixedWs :: Read (Layout Window) => [WorkspaceId] -> ContextName -> X Bool
+switchContextFixedWs fixedWs newContextName = do
     ctxStorage <- XS.get :: X ContextStorage
     let (maybeNewCtx, ctxMap) = findAndDelete newContextName (contextMap ctxStorage) -- get new
     case maybeNewCtx of
@@ -73,14 +79,17 @@ switchContext newContextName = do
 
             XS.put $ ContextStorage newContextName ctxMap' -- store context
 
-            setWindowsAndWorkspaces oldContext newCtx
+            setWindowsAndWorkspaces fixedWs oldContext newCtx
 
             return True
 
 createAndSwitchContext :: Read (Layout Window) => ContextName -> X ()
-createAndSwitchContext name = do
+createAndSwitchContext = createAndSwitchContextFixedWs []
+
+createAndSwitchContextFixedWs :: Read (Layout Window) => [WorkspaceId] -> ContextName -> X ()
+createAndSwitchContextFixedWs fixedWs name = do
     createContext name
-    _ <- switchContext name
+    _ <- switchContextFixedWs fixedWs name
     return ()
 
 
@@ -103,13 +112,13 @@ mergeContexts ids ctxOld ctxNew = do
     let newFocused = selectScreen (W.current stackNew)
 
     -- update workspaces
-    let newStack = stackNew {
+    let mergedStack = stackNew  {
         W.hidden = newHidden,
         W.visible = newVisible,
         W.current = newFocused
     }
 
-    Context newStack (workspaceNames ctxNew)
+    Context mergedStack (workspaceNames ctxNew)
 
         where
             selectScreen screen = do
@@ -124,12 +133,13 @@ mergeContexts ids ctxOld ctxNew = do
             oldWs ws = fromMaybe ws (find (\x -> W.tag ws == W.tag x) workspacesOld) -- if tag is not found in workspacesOld, return new ws
 
 -- set the window set and apply the workspaceNames
-setWindowsAndWorkspaces :: Context -> Context -> X ()
+setWindowsAndWorkspaces :: [WorkspaceId] -> Context -> Context -> X ()
 setWindowsAndWorkspaces fixedWs oldContext newContext = do
 
     -- copy fixed workspaces from curren context
     let mergedContext = mergeContexts fixedWs oldContext newContext
 
+    -- let Context windowSet workspaceNames = mergeContexts
     let Context windowSet workspaceNames = mergedContext
 
     windows $ const windowSet -- hide old windows and show windows from new context
@@ -155,10 +165,12 @@ defaultWorkspaces = do
     ws <- asks (workspaces . config)
     return $ map (,"") ws -- set every name to ""
 
+moveWindowToContext :: Read (Layout Window) => ContextName -> X Bool
+moveWindowToContext = moveWindowToContextFixedWs []
 
 -- switch to new context while taking the current active window with you
-moveWindowToContext :: Read (Layout Window) => ContextName -> X Bool
-moveWindowToContext name = do
+moveWindowToContextFixedWs :: Read (Layout Window) => [WorkspaceId] -> ContextName -> X Bool
+moveWindowToContextFixedWs fixedWs name = do
     ctxStorage <- XS.get :: X ContextStorage
     let (maybeNewCtx, ctxMap) = findAndDelete name (contextMap ctxStorage)
     case maybeNewCtx of
@@ -182,7 +194,7 @@ moveWindowToContext name = do
                             where newWindowSet = W.insertUp window (windowSet newCtx)
                                   newWorkspaceNames = workspaceNames newCtx
 
-                    setWindowsAndWorkspaces oldContext newCtx' -- load new context
+                    setWindowsAndWorkspaces fixedWs oldContext newCtx' -- load new context
 
                     return True
 
